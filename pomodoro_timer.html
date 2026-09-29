@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ポモドーロタイマー | Focus & Flow</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Tone.js for Web Audio Synthesis (No external audio file dependencies) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+  <!-- Google Fonts: Inter & Outfit for clean typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+  
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            display: ['Outfit', 'sans-serif'],
+          },
+          colors: {
+            pomodoro: {
+              red: '#f43f5e',
+              short: '#10b981',
+              long: '#0ea5e9'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* Smooth transitions */
+    * {
+      transition-property: background-color, border-color, color, fill, stroke;
+      transition-duration: 200ms;
+    }
+    .circular-progress {
+      transform: rotate(-90deg);
+      transform-origin: 50% 50%;
+    }
+    .progress-ring-circle {
+      transition: stroke-dashoffset 0.5s ease-in-out;
+    }
+    /* Pulse effect for running state */
+    @keyframes subtle-pulse {
+      0%, 100% { transform: scale(1); opacity: 0.95; }
+      50% { transform: scale(1.02); opacity: 1; }
+    }
+    .timer-running {
+      animation: subtle-pulse 3s infinite ease-in-out;
+    }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen font-sans flex flex-col items-center justify-between p-4 sm:p-6 select-none">
+
+  <!-- Top Navigation -->
+  <header class="w-full max-w-xl flex items-center justify-between py-3 border-b border-slate-800">
+    <div class="flex items-center space-x-2">
+      <span class="text-2xl">🍅</span>
+      <h1 class="text-xl font-bold font-display tracking-wide text-white">FocusTimer</h1>
+    </div>
+    <div class="flex items-center space-x-2">
+      <button id="soundSettingsBtn" class="p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition shadow-sm" title="サウンド設定">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+        </svg>
+      </button>
+      <button id="timerSettingsBtn" class="p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition shadow-sm" title="時間設定">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="w-full max-w-xl flex flex-col items-center my-auto py-6">
+    <!-- Mode Switcher Tabs -->
+    <div class="inline-flex p-1.5 bg-slate-800/90 rounded-2xl border border-slate-700/60 shadow-lg mb-8 max-w-full overflow-x-auto">
+      <button id="modeWork" class="mode-btn px-5 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 bg-rose-500 text-white shadow-md">
+        集中タイム
+      </button>
+      <button id="modeShort" class="mode-btn px-5 py-2.5 rounded-xl font-medium text-sm text-slate-400 hover:text-white transition-all duration-200">
+        短い休憩
+      </button>
+      <button id="modeLong" class="mode-btn px-5 py-2.5 rounded-xl font-medium text-sm text-slate-400 hover:text-white transition-all duration-200">
+        長い休憩
+      </button>
+    </div>
+
+    <!-- Circular Timer Display -->
+    <div class="relative flex items-center justify-center my-2" id="timerWrapper">
+      <svg class="circular-progress w-72 h-72 sm:w-80 sm:h-80 drop-shadow-xl" viewBox="0 0 260 260">
+        <!-- Background Track -->
+        <circle cx="130" cy="130" r="115" stroke="currentColor" stroke-width="10" class="text-slate-800" fill="transparent" />
+        <!-- Progress Bar -->
+        <circle id="progressCircle" cx="130" cy="130" r="115" stroke="currentColor" stroke-width="10" 
+          stroke-linecap="round" class="progress-ring-circle text-rose-500" fill="transparent"
+          stroke-dasharray="722.56" stroke-dashoffset="0" />
+      </svg>
+
+      <!-- Center Info Content -->
+      <div class="absolute flex flex-col items-center justify-center text-center">
+        <span id="sessionStatus" class="text-xs font-semibold tracking-widest uppercase text-rose-400 mb-1">
+          FOCUS SESSION
+        </span>
+        <span id="timeDisplay" class="text-6xl sm:text-7xl font-bold font-display tracking-tight text-white drop-shadow">
+          25:00
+        </span>
+        
+        <!-- 4-Session Cycle Dots Indicator -->
+        <div class="mt-2 flex flex-col items-center gap-1">
+          <div class="flex items-center gap-1.5" id="cycleDotsContainer" title="4ポモドーロのサイクル進捗">
+            <span class="cycle-dot w-2.5 h-2.5 rounded-full bg-slate-700 transition-colors duration-300"></span>
+            <span class="cycle-dot w-2.5 h-2.5 rounded-full bg-slate-700 transition-colors duration-300"></span>
+            <span class="cycle-dot w-2.5 h-2.5 rounded-full bg-slate-700 transition-colors duration-300"></span>
+            <span class="cycle-dot w-2.5 h-2.5 rounded-full bg-slate-700 transition-colors duration-300"></span>
+          </div>
+          <div class="flex items-center gap-1.5 bg-slate-800/80 px-2.5 py-0.5 rounded-full border border-slate-700/50 mt-1">
+            <span class="text-[11px] text-slate-400">合計セッション:</span>
+            <span id="completedSessionsCount" class="text-[11px] font-bold text-rose-400">0</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Action Control Buttons -->
+    <div class="flex items-center gap-4 mt-8">
+      <button id="resetBtn" class="p-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition shadow border border-slate-700/60" title="リセット">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        </svg>
+      </button>
+
+      <button id="toggleBtn" class="px-10 py-4 rounded-2xl bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white font-bold text-lg shadow-lg hover:shadow-rose-500/20 active:scale-95 transition flex items-center gap-2">
+        <svg id="playIcon" xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M8 5v14l11-7z"/>
+        </svg>
+        <svg id="pauseIcon" xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 hidden" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+        </svg>
+        <span id="toggleText">スタート</span>
+      </button>
+
+      <button id="skipBtn" class="p-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition shadow border border-slate-700/60" title="次へスキップ">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+        </svg>
+      </button>
+    </div>
+
+    <!-- Active Sound Display Pill -->
+    <div class="mt-6 flex items-center gap-2 text-xs text-slate-400 bg-slate-800/60 px-3.5 py-1.5 rounded-full border border-slate-700/40">
+      <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+      </svg>
+      <span>通知音: <strong id="currentSoundName" class="text-slate-200">ベル・チャイム</strong></span>
+    </div>
+  </main>
+
+  <div id="soundModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-800 border border-slate-700 rounded-3xl p-6 w-full max-w-md shadow-2xl relative">
+      <div class="flex items-center justify-between pb-4 border-b border-slate-700">
+        <h2 class="text-lg font-bold text-white flex items-center gap-2">
+          <span>🔔</span> 通知音の設定
+        </h2>
+        <button id="closeSoundModal" class="text-slate-400 hover:text-white p-1 rounded-lg">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <!-- Sound Selection List -->
+      <div class="mt-4 space-y-2">
+        <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">通知音の種類</label>
+        
+        <div class="space-y-2" id="soundOptionsContainer">
+          <!-- Options dynamically rendered in JS or hardcoded with listeners -->
+          <div class="sound-option flex items-center justify-between p-3 rounded-xl bg-slate-900/60 border border-slate-700 hover:border-rose-500/50 cursor-pointer" data-sound="chime">
+            <div class="flex items-center gap-3">
+              <input type="radio" name="alarmSound" id="sound_chime" value="chime" checked class="w-4 h-4 text-rose-500 focus:ring-rose-500">
+              <label for="sound_chime" class="cursor-pointer text-sm font-medium">✨ ベル・チャイム (澄んだ高音)</label>
+            </div>
+            <button class="preview-btn px-2.5 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-rose-400 font-semibold" data-sound="chime">試聴</button>
+          </div>
+
+          <div class="sound-option flex items-center justify-between p-3 rounded-xl bg-slate-900/60 border border-slate-700 hover:border-rose-500/50 cursor-pointer" data-sound="digital">
+            <div class="flex items-center gap-3">
+              <input type="radio" name="alarmSound" id="sound_digital" value="digital" class="w-4 h-4 text-rose-500 focus:ring-rose-500">
+              <label for="sound_digital" class="cursor-pointer text-sm font-medium">⏰ デジタルビープ (確実な通知)</label>
+            </div>
+            <button class="preview-btn px-2.5 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-rose-400 font-semibold" data-sound="digital">試聴</button>
+          </div>
+
+          <div class="sound-option flex items-center justify-between p-3 rounded-xl bg-slate-900/60 border border-slate-700 hover:border-rose-500/50 cursor-pointer" data-sound="marimba">
+            <div class="flex items-center gap-3">
+              <input type="radio" name="alarmSound" id="sound_marimba" value="marimba" class="w-4 h-4 text-rose-500 focus:ring-rose-500">
+              <label for="sound_marimba" class="cursor-pointer text-sm font-medium">🪵 やさしいマリンバ (穏やか)</label>
+            </div>
+            <button class="preview-btn px-2.5 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-rose-400 font-semibold" data-sound="marimba">試聴</button>
+          </div>
+
+          <div class="sound-option flex items-center justify-between p-3 rounded-xl bg-slate-900/60 border border-slate-700 hover:border-rose-500/50 cursor-pointer" data-sound="gong">
+            <div class="flex items-center gap-3">
+              <input type="radio" name="alarmSound" id="sound_gong" value="gong" class="w-4 h-4 text-rose-500 focus:ring-rose-500">
+              <label for="sound_gong" class="cursor-pointer text-sm font-medium">🧘 禅ボウル / ゴング (深い余韻)</label>
+            </div>
+            <button class="preview-btn px-2.5 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-rose-400 font-semibold" data-sound="gong">試聴</button>
+          </div>
+
+          <div class="sound-option flex items-center justify-between p-3 rounded-xl bg-slate-900/60 border border-slate-700 hover:border-rose-500/50 cursor-pointer" data-sound="melody">
+            <div class="flex items-center gap-3">
+              <input type="radio" name="alarmSound" id="sound_melody" value="melody" class="w-4 h-4 text-rose-500 focus:ring-rose-500">
+              <label for="sound_melody" class="cursor-pointer text-sm font-medium">🎵 ファンファーレ (達成感)</label>
+            </div>
+            <button class="preview-btn px-2.5 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-rose-400 font-semibold" data-sound="melody">試聴</button>
+          </div>
+        </div>
+
+        <!-- Volume Slider -->
+        <div class="mt-5 pt-4 border-t border-slate-700">
+          <div class="flex justify-between items-center mb-1 text-xs font-semibold text-slate-400">
+            <span>音量</span>
+            <span id="volumePercentage">80%</span>
+          </div>
+          <input id="volumeSlider" type="range" min="0" max="100" value="80" class="w-full h-2 bg-slate-900 rounded-lg appearance-none cursor-pointer accent-rose-500">
+        </div>
+      </div>
+
+      <div class="mt-6 flex justify-end">
+        <button id="saveSoundBtn" class="w-full py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 font-bold text-sm text-white shadow">
+          設定を保存
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div id="timerModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-800 border border-slate-700 rounded-3xl p-6 w-full max-w-sm shadow-2xl relative">
+      <div class="flex items-center justify-between pb-4 border-b border-slate-700">
+        <h2 class="text-lg font-bold text-white flex items-center gap-2">
+          <span>⏱️</span> 時間の設定 (分)
+        </h2>
+        <button id="closeTimerModal" class="text-slate-400 hover:text-white p-1 rounded-lg">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="mt-4 space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">集中時間 (分)</label>
+          <input type="number" id="inputWork" min="1" max="120" value="25" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-rose-500 font-mono text-center">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">短い休憩 (分)</label>
+          <input type="number" id="inputShort" min="1" max="60" value="5" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-emerald-500 font-mono text-center">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">長い休憩 (分)</label>
+          <input type="number" id="inputLong" min="1" max="90" value="15" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-sky-500 font-mono text-center">
+        </div>
+
+        <!-- Automation Toggles -->
+        <div class="pt-3 border-t border-slate-700 space-y-2.5">
+          <span class="block text-xs font-semibold text-slate-400 uppercase tracking-wider">自動進行オプション</span>
+          
+          <label class="flex items-center justify-between cursor-pointer p-2 rounded-xl bg-slate-900/50 hover:bg-slate-900">
+            <span class="text-xs font-medium text-slate-300">休憩を自動スタートする</span>
+            <input type="checkbox" id="autoStartBreaksToggle" class="w-4 h-4 rounded text-rose-500 focus:ring-rose-500 accent-rose-500">
+          </label>
+
+          <label class="flex items-center justify-between cursor-pointer p-2 rounded-xl bg-slate-900/50 hover:bg-slate-900">
+            <span class="text-xs font-medium text-slate-300">次の集中を自動スタートする</span>
+            <input type="checkbox" id="autoStartWorkToggle" class="w-4 h-4 rounded text-rose-500 focus:ring-rose-500 accent-rose-500">
+          </label>
+        </div>
+      </div>
+
+      <div class="mt-6 flex gap-2">
+        <button id="resetDefaultsBtn" class="px-4 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 font-medium text-xs text-slate-300">
+          デフォルト
+        </button>
+        <button id="saveTimerBtn" class="flex-1 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 font-bold text-sm text-white shadow">
+          変更を適用
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toastNotification" class="fixed bottom-6 bg-slate-800 border border-rose-500/50 text-white px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3 transform translate-y-24 opacity-0 transition-all duration-300 pointer-events-none z-50">
+    <span class="text-2xl" id="toastIcon">🎉</span>
+    <div>
+      <h4 class="font-bold text-sm" id="toastTitle">時間です！</h4>
+      <p class="text-xs text-slate-300" id="toastMessage">セッションが完了しました。</p>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="text-center text-xs text-slate-500 py-2">
+    FocusTimer &copy; ポモドーロテクニックで集中と休憩の好循環をつくりましょう
+  </footer>
+
+  <script>
+    // State management
+    const state = {
+      mode: 'work', // 'work', 'short', 'long'
+      durations: {
+        work: 25 * 60,
+        short: 5 * 60,
+        long: 15 * 60
+      },
+      timeLeft: 25 * 60,
+      isRunning: false,
+      timerId: null,
+      selectedSound: 'chime',
+      volume: 0.8,
+      completedSessions: 0,
+      autoStartBreaks: false, // デフォルト: 勝手に始まらず待機
+      autoStartWork: false    // デフォルト: 休憩後も勝手に始まらず待機
+    };
+
+    const soundNames = {
+      chime: 'ベル・チャイム',
+      digital: 'デジタルビープ',
+      marimba: 'やさしいマリンバ',
+      gong: '禅ボウル / ゴング',
+      melody: 'ファンファーレ'
+    };
+
+    // DOM Elements
+    const timeDisplay = document.getElementById('timeDisplay');
+    const sessionStatus = document.getElementById('sessionStatus');
+    const toggleBtn = document.getElementById('toggleBtn');
+    const toggleText = document.getElementById('toggleText');
+    const playIcon = document.getElementById('playIcon');
+    const pauseIcon = document.getElementById('pauseIcon');
+    const resetBtn = document.getElementById('resetBtn');
+    const skipBtn = document.getElementById('skipBtn');
+    const progressCircle = document.getElementById('progressCircle');
+    const timerWrapper = document.getElementById('timerWrapper');
+    const currentSoundName = document.getElementById('currentSoundName');
+    const completedSessionsCount = document.getElementById('completedSessionsCount');
+
+    // Modals
+    const soundModal = document.getElementById('soundModal');
+    const timerModal = document.getElementById('timerModal');
+    const soundSettingsBtn = document.getElementById('soundSettingsBtn');
+    const timerSettingsBtn = document.getElementById('timerSettingsBtn');
+    const closeSoundModal = document.getElementById('closeSoundModal');
+    const closeTimerModal = document.getElementById('closeTimerModal');
+    const saveSoundBtn = document.getElementById('saveSoundBtn');
+    const saveTimerBtn = document.getElementById('saveTimerBtn');
+    const resetDefaultsBtn = document.getElementById('resetDefaultsBtn');
+    const volumeSlider = document.getElementById('volumeSlider');
+    const volumePercentage = document.getElementById('volumePercentage');
+
+    // Timer Inputs
+    const inputWork = document.getElementById('inputWork');
+    const inputShort = document.getElementById('inputShort');
+    const inputLong = document.getElementById('inputLong');
+    const autoStartBreaksToggle = document.getElementById('autoStartBreaksToggle');
+    const autoStartWorkToggle = document.getElementById('autoStartWorkToggle');
+    const cycleDots = document.querySelectorAll('.cycle-dot');
+
+    // Mode Buttons
+    const modeBtns = {
+      work: document.getElementById('modeWork'),
+      short: document.getElementById('modeShort'),
+      long: document.getElementById('modeLong')
+    };
+
+    // Circular progress metrics (radius = 115)
+    const circleRadius = 115;
+    const circumference = 2 * Math.PI * circleRadius; // approx 722.56
+    progressCircle.style.strokeDasharray = `${circumference} ${circumference}`;
+
+    let audioInitialized = false;
+
+    async function initAudio() {
+      if (!audioInitialized) {
+        await Tone.start();
+        Tone.Destination.volume.value = Tone.gainToDb(state.volume);
+        audioInitialized = true;
+      }
+    }
+
+    // Play synthesized notifications based on sound type
+    async function playNotificationSound(type) {
+      await initAudio();
+      const soundType = type || state.selectedSound;
+      const now = Tone.now();
+
+      try {
+        if (soundType === 'chime') {
+          // Clear bright chime chord (Gmaj9)
+          const synth = new Tone.PolySynth(Tone.Synth, {
+            oscillator: { type: "sine" },
+            envelope: { attack: 0.005, decay: 1.2, sustain: 0.1, release: 1.5 }
+          }).toDestination();
+          synth.triggerAttackRelease(["G5", "B5", "D6", "F#6"], "1.5s", now);
+        } 
+        else if (soundType === 'digital') {
+          // Classic electronic alarm beep pattern (beep-beep-beep)
+          const synth = new Tone.Synth({
+            oscillator: { type: "square" },
+            envelope: { attack: 0.01, decay: 0.1, sustain: 0.0, release: 0.05 }
+          }).toDestination();
+          
+          synth.triggerAttackRelease("A5", "16n", now);
+          synth.triggerAttackRelease("A5", "16n", now + 0.15);
+          synth.triggerAttackRelease("A5", "16n", now + 0.30);
+          synth.triggerAttackRelease("A5", "16n", now + 0.60);
+          synth.triggerAttackRelease("A5", "16n", now + 0.75);
+          synth.triggerAttackRelease("A5", "16n", now + 0.90);
+        }
+        else if (soundType === 'marimba') {
+          // Soft organic wooden marimba motif
+          const synth = new Tone.PolySynth(Tone.Synth, {
+            oscillator: { type: "triangle" },
+            envelope: { attack: 0.002, decay: 0.6, sustain: 0.01, release: 0.6 }
+          }).toDestination();
+
+          const notes = ["C5", "E5", "G5", "C6"];
+          notes.forEach((note, index) => {
+            synth.triggerAttackRelease(note, "8n", now + index * 0.12);
+          });
+        }
+        else if (soundType === 'gong') {
+          // Deep meditative Tibetan singing bowl / gong
+          const synth = new Tone.Synth({
+            oscillator: { type: "sine" },
+            envelope: { attack: 0.05, decay: 3.5, sustain: 0.2, release: 3 }
+          }).toDestination();
+
+          const subSynth = new Tone.Synth({
+            oscillator: { type: "triangle" },
+            envelope: { attack: 0.08, decay: 3, sustain: 0.1, release: 2.5 }
+          }).toDestination();
+
+          synth.triggerAttackRelease("C3", "3s", now);
+          subSynth.triggerAttackRelease("G3", "3s", now);
+        }
+        else if (soundType === 'melody') {
+          // Uplifting victory fanfare
+          const synth = new Tone.PolySynth(Tone.Synth, {
+            oscillator: { type: "fmsine", modulationType: "triangle" },
+            envelope: { attack: 0.01, decay: 0.3, sustain: 0.2, release: 0.8 }
+          }).toDestination();
+
+          const melody = [
+            { note: "C5", time: 0, duration: "16n" },
+            { note: "E5", time: 0.1, duration: "16n" },
+            { note: "G5", time: 0.2, duration: "16n" },
+            { note: "C6", time: 0.32, duration: "4n" }
+          ];
+
+          melody.forEach(item => {
+            synth.triggerAttackRelease(item.note, item.duration, now + item.time);
+          });
+        }
+      } catch (e) {
+        console.error("Audio playback error:", e);
+      }
+    }
+
+    function formatTime(seconds) {
+      const mins = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    function updateDisplay() {
+      timeDisplay.textContent = formatTime(state.timeLeft);
+      document.title = `(${formatTime(state.timeLeft)}) FocusTimer`;
+
+      const totalDuration = state.durations[state.mode];
+      const progress = (totalDuration - state.timeLeft) / totalDuration;
+      const offset = circumference - (progress * circumference);
+      progressCircle.style.strokeDashoffset = offset;
+      updateCycleDots();
+    }
+
+    function updateCycleDots() {
+      const cycleStep = state.completedSessions % 4;
+      cycleDots.forEach((dot, index) => {
+        if (index < cycleStep) {
+          dot.className = 'cycle-dot w-2.5 h-2.5 rounded-full bg-rose-500 shadow-sm shadow-rose-500/50 transition-colors duration-300';
+        } else {
+          dot.className = 'cycle-dot w-2.5 h-2.5 rounded-full bg-slate-700 transition-colors duration-300';
+        }
+      });
+    }
+
+    function setMode(newMode) {
+      if (state.isRunning) {
+        pauseTimer();
+      }
+
+      state.mode = newMode;
+      state.timeLeft = state.durations[newMode];
+
+      // Update Tab Styles
+      Object.keys(modeBtns).forEach(key => {
+        const btn = modeBtns[key];
+        btn.className = 'mode-btn px-5 py-2.5 rounded-xl font-medium text-sm text-slate-400 hover:text-white transition-all duration-200';
+      });
+
+      // Colors and status label per mode
+      if (newMode === 'work') {
+        modeBtns.work.className = 'mode-btn px-5 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 bg-rose-500 text-white shadow-md';
+        progressCircle.className = 'progress-ring-circle text-rose-500';
+        toggleBtn.className = 'px-10 py-4 rounded-2xl bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white font-bold text-lg shadow-lg hover:shadow-rose-500/20 active:scale-95 transition flex items-center gap-2';
+        sessionStatus.textContent = 'FOCUS SESSION';
+        sessionStatus.className = 'text-xs font-semibold tracking-widest uppercase text-rose-400 mb-1';
+      } else if (newMode === 'short') {
+        modeBtns.short.className = 'mode-btn px-5 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 bg-emerald-500 text-white shadow-md';
+        progressCircle.className = 'progress-ring-circle text-emerald-500';
+        toggleBtn.className = 'px-10 py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-bold text-lg shadow-lg hover:shadow-emerald-500/20 active:scale-95 transition flex items-center gap-2';
+        sessionStatus.textContent = 'SHORT BREAK';
+        sessionStatus.className = 'text-xs font-semibold tracking-widest uppercase text-emerald-400 mb-1';
+      } else if (newMode === 'long') {
+        modeBtns.long.className = 'mode-btn px-5 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 bg-sky-500 text-white shadow-md';
+        progressCircle.className = 'progress-ring-circle text-sky-500';
+        toggleBtn.className = 'px-10 py-4 rounded-2xl bg-gradient-to-r from-sky-500 to-sky-600 hover:from-sky-600 hover:to-sky-700 text-white font-bold text-lg shadow-lg hover:shadow-sky-500/20 active:scale-95 transition flex items-center gap-2';
+        sessionStatus.textContent = 'LONG BREAK';
+        sessionStatus.className = 'text-xs font-semibold tracking-widest uppercase text-sky-400 mb-1';
+      }
+
+      updateDisplay();
+    }
+
+    function startTimer() {
+      initAudio(); // Prepare audio context on user gesture
+      state.isRunning = true;
+      toggleText.textContent = '一時停止';
+      playIcon.classList.add('hidden');
+      pauseIcon.classList.remove('hidden');
+      timerWrapper.classList.add('timer-running');
+
+      state.timerId = setInterval(() => {
+        if (state.timeLeft > 0) {
+          state.timeLeft--;
+          updateDisplay();
+        } else {
+          onTimerComplete();
+        }
+      }, 1000);
+    }
+
+    function pauseTimer() {
+      state.isRunning = false;
+      clearInterval(state.timerId);
+      toggleText.textContent = '再開';
+      playIcon.classList.remove('hidden');
+      pauseIcon.classList.add('hidden');
+      timerWrapper.classList.remove('timer-running');
+    }
+
+    function resetTimer() {
+      pauseTimer();
+      toggleText.textContent = 'スタート';
+      state.timeLeft = state.durations[state.mode];
+      updateDisplay();
+    }
+
+    function showToast(title, message, icon) {
+      const toast = document.getElementById('toastNotification');
+      document.getElementById('toastTitle').textContent = title;
+      document.getElementById('toastMessage').textContent = message;
+      document.getElementById('toastIcon').textContent = icon;
+
+      toast.classList.remove('opacity-0', 'translate-y-24');
+      toast.classList.add('opacity-100', 'translate-y-0');
+
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-24');
+        toast.classList.remove('opacity-100', 'translate-y-0');
+      }, 4500);
+    }
+
+    function onTimerComplete() {
+      pauseTimer();
+      toggleText.textContent = 'スタート';
+      
+      // Play selected alarm sound
+      playNotificationSound();
+
+      if (state.mode === 'work') {
+        state.completedSessions++;
+        completedSessionsCount.textContent = state.completedSessions;
+        updateCycleDots();
+        
+        const isLongBreak = (state.completedSessions % 4 === 0);
+        if (isLongBreak) {
+          showToast('素晴らしい！4セッション完了', '長めの休憩を取りましょう。深く呼吸してください。', '🌟');
+          setMode('long');
+        } else {
+          showToast('集中セッション終了！', 'お疲れ様でした。短い休憩を取りましょう。', '☕');
+          setMode('short');
+        }
+
+        // ユーザーが「休憩の自動スタート」をONにしている場合のみ自動開始
+        if (state.autoStartBreaks) {
+          setTimeout(() => startTimer(), 800);
+        }
+      } else {
+        showToast('休憩終了！', 'リフレッシュできましたか？次のセッションを始めましょう。', '🚀');
+        setMode('work');
+
+        // ユーザーが「集中の自動スタート」をONにしている場合のみ自動開始
+        if (state.autoStartWork) {
+          setTimeout(() => startTimer(), 800);
+        }
+      }
+    }
+
+    toggleBtn.addEventListener('click', () => {
+      if (state.isRunning) {
+        pauseTimer();
+      } else {
+        startTimer();
+      }
+    });
+
+    resetBtn.addEventListener('click', resetTimer);
+
+    skipBtn.addEventListener('click', () => {
+      if (state.mode === 'work') {
+        setMode('short');
+      } else {
+        setMode('work');
+      }
+    });
+
+    modeBtns.work.addEventListener('click', () => setMode('work'));
+    modeBtns.short.addEventListener('click', () => setMode('short'));
+    modeBtns.long.addEventListener('click', () => setMode('long'));
+
+    // Open & Close Modals
+    soundSettingsBtn.addEventListener('click', () => {
+      soundModal.classList.remove('hidden');
+    });
+
+    closeSoundModal.addEventListener('click', () => {
+      soundModal.classList.add('hidden');
+    });
+
+    timerSettingsBtn.addEventListener('click', () => {
+      inputWork.value = Math.round(state.durations.work / 60);
+      inputShort.value = Math.round(state.durations.short / 60);
+      inputLong.value = Math.round(state.durations.long / 60);
+      autoStartBreaksToggle.checked = state.autoStartBreaks;
+      autoStartWorkToggle.checked = state.autoStartWork;
+      timerModal.classList.remove('hidden');
+    });
+
+    closeTimerModal.addEventListener('click', () => {
+      timerModal.classList.add('hidden');
+    });
+
+    // Close modals on clicking backdrop
+    [soundModal, timerModal].forEach(modal => {
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.classList.add('hidden');
+      });
+    });
+
+    // Sound Selection & Preview buttons
+    document.querySelectorAll('.preview-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const sound = btn.getAttribute('data-sound');
+        playNotificationSound(sound);
+      });
+    });
+
+    document.querySelectorAll('.sound-option').forEach(option => {
+      option.addEventListener('click', () => {
+        const sound = option.getAttribute('data-sound');
+        const radio = document.querySelector(`input[value="${sound}"]`);
+        if (radio) radio.checked = true;
+      });
+    });
+
+    // Volume Adjustment
+    volumeSlider.addEventListener('input', (e) => {
+      const vol = e.target.value / 100;
+      state.volume = vol;
+      volumePercentage.textContent = `${e.target.value}%`;
+      if (audioInitialized) {
+        Tone.Destination.volume.value = Tone.gainToDb(vol);
+      }
+    });
+
+    // Save Sound Settings
+    saveSoundBtn.addEventListener('click', () => {
+      const selected = document.querySelector('input[name="alarmSound"]:checked');
+      if (selected) {
+        state.selectedSound = selected.value;
+        currentSoundName.textContent = soundNames[state.selectedSound];
+      }
+      soundModal.classList.add('hidden');
+      showToast('設定保存', `通知音を「${soundNames[state.selectedSound]}」に設定しました`, '✅');
+    });
+
+    // Save Duration Settings
+    saveTimerBtn.addEventListener('click', () => {
+      const workVal = parseInt(inputWork.value, 10);
+      const shortVal = parseInt(inputShort.value, 10);
+      const longVal = parseInt(inputLong.value, 10);
+
+      if (workVal > 0 && shortVal > 0 && longVal > 0) {
+        state.durations.work = workVal * 60;
+        state.durations.short = shortVal * 60;
+        state.durations.long = longVal * 60;
+        state.autoStartBreaks = autoStartBreaksToggle.checked;
+        state.autoStartWork = autoStartWorkToggle.checked;
+        
+        state.timeLeft = state.durations[state.mode];
+        updateDisplay();
+        timerModal.classList.add('hidden');
+        showToast('設定を更新しました', '時間および自動開始オプションを保存しました', '⚙️');
+      }
+    });
+
+    resetDefaultsBtn.addEventListener('click', () => {
+      inputWork.value = 25;
+      inputShort.value = 5;
+      inputLong.value = 15;
+      autoStartBreaksToggle.checked = false;
+      autoStartWorkToggle.checked = false;
+    });
+
+    // Initial paint
+    updateDisplay();
+  </script>
+</body>
+</html>
